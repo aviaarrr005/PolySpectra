@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Proctoring</title>
+  <style>
+    :root{
+      --bg:#0b0f17;--panel:#0f172a;--muted:#93a4b6;--text:#e6edf3;
+      --ok:#00c853;--warn:#ffa000;--bad:#d81b60;--blue:#0ea5e9;--chip:#111827;
+      --okA:rgba(0,200,83,.85);--alertA:rgba(216,27,96,.85);--calibA:rgba(255,160,0,.85);
+      --btn-stop-bg: linear-gradient(180deg, #f87171, #dc2626);
+      --btn-start-bg: linear-gradient(180deg, #4ade80, #16a34a);
+    }
+    *{box-sizing:border-box} body{
+      font-family:system-ui,-apple-system,SegUI,Roboto,Arial;
+      background:linear-gradient(180deg,#0b0f17,#0a0f1a 40%,#0b1220 100%);
+      color:var(--text); margin:0; padding:20px; display:flex; flex-direction:column; align-items:center; gap:16px;
+    }
+    h1{margin:6px 0 6px 0; font-weight:600; letter-spacing:.2px}
+    #topbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .chip{display:inline-flex; align-items:center; gap:8px; color:#c7d6e5; background:var(--chip);
+      padding:8px 12px; border-radius:999px; border:1px solid rgba(255,255,255,.06); font-size:13px}
+    .dot{width:9px; height:9px; border-radius:50%; background:#64748b}
+    .dot.ok{background:#22c55e; box-shadow:0 0 0 6px rgba(34,197,94,.15)}
+    .dot.warn{background:#f59e0b; box-shadow:0 0 0 6px rgba(245,158,11,.12)}
+    .dot.bad{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.12)}
+
+    #dashboard-row{display:flex; gap:28px; align-items:flex-end; justify-content:center; width:100%; max-width:900px}
+    .dash{background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:14px 18px;
+      box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .kpi{display:flex; flex-direction:column; align-items:center; min-width:220px}
+    #score-value{font-size:4.2rem; font-weight:800; line-height:1; margin-bottom:6px}
+    .score-good{color:var(--ok)} .score-warn{color:var(--warn)} .score-bad{color:var(--bad)}
+    .kpi-label{color:var(--muted); letter-spacing:1.4px; text-transform:uppercase; font-size:.95rem}
+
+    #focus-percentage-value{font-size:2.6rem; font-weight:700; line-height:1; margin-bottom:6px; color:#e8eef7}
+    #penalty-reason{min-height:22px; font-weight:600; color:#cad7e6}
+
+    #video-container{position:relative; width:100%; max-width:900px; border-radius:14px; overflow:hidden;
+      background:#000; border:1px solid rgba(255,255,255,.06); box-shadow:0 16px 40px rgba(0,0,0,.35)}
+    img#video-feed-img{display:block; width:100%; height:auto} /* Fixed ID selector */
+    
+    #stream-stopped-overlay {
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(11, 15, 23, 0.85); color: var(--muted);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.5rem; font-weight: 600; backdrop-filter: blur(4px);
+        z-index: 10; display: none;
+    }
+
+    #status-box{position:absolute; bottom:12px; left:12px; right:12px; padding:12px 16px; border-radius:10px;
+      font-size:1.05rem; font-weight:700; text-align:center; color:#fff; box-shadow:0 8px 18px rgba(0,0,0,.4)}
+    .status-ok{background:var(--okA)}
+    .status-alert{background:var(--alertA); animation:pulse 1.6s infinite}
+    .status-calib{background:var(--calibA)}
+    @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
+
+    #controls{display:flex; gap:10px; align-items:center; justify-content:center}
+    .btn{
+      color:#fff;background:linear-gradient(180deg,#0ea5e9,#0284c7);
+      border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer;
+      box-shadow:0 8px 18px rgba(2,132,199,.25); transition:transform .12s ease, opacity .2s ease
+    }
+    .btn:active{transform:scale(.98)}
+    .btn[disabled]{opacity:.6; cursor:not-allowed; filter:grayscale(.2)}
+    #stop-button { background: var(--btn-stop-bg); }
+    #start-button { background: var(--btn-start-bg); display: none; }
+
+    .switch{display:inline-flex; align-items:center; gap:10px; background:var(--panel); border:1px solid rgba(255,255,255,.06);
+      padding:8px 12px; border-radius:999px}
+    .switch input{appearance:none; width:40px; height:22px; border-radius:999px; background:#334155; position:relative; outline:none; cursor:pointer}
+    .switch input:before{content:""; position:absolute; left:3px; top:3px; width:16px; height:16px; border-radius:50%; background:#e5e7eb; transition:left .15s ease}
+    .switch input:checked{background:#22c55e}
+    .switch input:checked:before{left:21px}
+    .switch label{font-size:13px; color:#c9d6e6}
+
+    #calibWrap{position:fixed; left:16px; bottom:16px; width:360px; z-index:9999}
+    #calibBox{background:var(--panel); padding:12px 14px; border-radius:12px; color:#e2e8f0;
+      box-shadow:0 10px 26px rgba(0,0,0,.4); border:1px solid rgba(255,255,255,.06)}
+    #calibHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+    #calibPhase{font-size:12px; color:#cbd5e1; font-weight:700}
+    #calibPct{font-size:12px; color:#94a3b8}
+    #calibBarOuter{height:10px; background:#1f2937; border-radius:8px; overflow:hidden; margin-top:6px}
+    #calibBarInner{height:100%; width:0%; background:linear-gradient(90deg,#22c55e,#3b82f6); transition:width .25s ease}
+
+    #extraStatus{display:flex; gap:8px; margin-top:8px; align-items:center; color:#9fb2c6; font-size:12px}
+    .pill{display:inline-flex; align-items:center; gap:6px; background:#0b1220; border:1px solid rgba(255,255,255,.06);
+      padding:6px 10px; border-radius:999px}
+  </style>
+</head>
+<body>
+  <h1>AI Proctor Dashboard</h1>
+
+  <div id="topbar">
+    <div class="chip"><span class="dot ok" id="camDot"></span><span id="camText">Camera: live</span></div>
+    <div class="chip"><span class="dot" id="tabDot"></span><span id="tabText">Tab: active</span></div>
+    <div class="chip">
+      <span class="dot" id="micDot"></span>
+      <span id="micText">Speech: inactive</span>
+    </div>
+    <div class="chip" id="calibStatusChip">
+        <span class="dot bad" id="calibStatusDot"></span>
+        <span id="calibStatusText">Calibration: Not Calibrated</span>
+    </div>
+  </div>
+
+  <div id="dashboard-row">
+    <div class="dash kpi">
+      <span id="score-value" class="score-good">100.00</span>
+      <span class="kpi-label">Focus Score</span>
+    </div>
+    <div class="dash kpi">
+      <span id="focus-percentage-value">---</span>
+      <span class="kpi-label">Focus Time %</span>
+    </div>
+  </div>
+
+  <div id="penalty-reason">FOCUSED</div>
+
+  <div id="video-container">
+    <img id="video-feed-img" src="{{ url_for('video_feed') }}" alt="Video Feed">
+    <div id="stream-stopped-overlay">STREAM PAUSED</div>
+    <div id="status-box" class="status-calib">Connecting...</div>
+  </div>
+
+  <div id="controls">
+    <button id="stop-button" class="btn" title="Pause video processing">Stop Camera</button>
+    <button id="start-button" class="btn" title="Resume video processing">Start Camera</button>
+    <button id="recalib-button" class="btn" title="Start multi-angle calibration">Recalibrate</button>
+    <button id="report-button" class="btn" title="Download session report" style="background:linear-gradient(180deg,#3b82f6,#2563eb);">Download Report</button>
+    <div class="switch" title="Toggle speech detection (server)">
+      <input type="checkbox" id="speech-toggle"/>
+      <label for="speech-toggle">Mic</label>
+    </div>
+  </div>
+
+  <div id="calibWrap" aria-live="polite">
+    <div id="calibBox">
+      <div id="calibHeader">
+        <div id="calibPhase">Calibration: waiting...</div>
+        <div id="calibPct">Phase: 0% • Overall: 0%</div>
+      </div>
+      <div id="calibBarOuter"><div id="calibBarInner"></div></div>
+      <div id="extraStatus">
+        <div class="pill" id="eyesPill"><span class="dot" id="eyesDot"></span><span id="eyesText">Eyes: open</span></div>
+        <div class="pill" id="speechPill"><span class="dot" id="speechDot"></span><span id="speechPillText">Speech: inactive</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
+
+      // Elements
+      const statusBox = document.getElementById('status-box');
+      const recalibButton = document.getElementById('recalib-button');
+      const reportButton = document.getElementById('report-button');
+      const scoreValueEl = document.getElementById('score-value');
+      const penaltyReasonEl = document.getElementById('penalty-reason');
+      const focusPercentageValueEl = document.getElementById('focus-percentage-value');
+      const videoFeedImg = document.getElementById('video-feed-img');
+      const streamStoppedOverlay = document.getElementById('stream-stopped-overlay');
+      const startButton = document.getElementById('start-button');
+      const stopButton = document.getElementById('stop-button');
+      const tabDot = document.getElementById('tabDot');
+      const tabText = document.getElementById('tabText');
+      const camDot = document.getElementById('camDot');
+      const camText = document.getElementById('camText');
+      const micDot = document.getElementById('micDot');
+      const micText = document.getElementById('micText');
+      const speechToggle = document.getElementById('speech-toggle');
+      const calibPhaseEl = document.getElementById('calibPhase');
+      const calibPctEl = document.getElementById('calibPct');
+      const calibBarInnerEl = document.getElementById('calibBarInner');
+      const eyesDot = document.getElementById('eyesDot');
+      const eyesText = document.getElementById('eyesText');
+      const speechDot = document.getElementById('speechDot');
+      const speechPillText = document.getElementById('speechPillText');
+      // ADDED: Calibration status chip elements
+      const calibStatusDot = document.getElementById('calibStatusDot');
+      const calibStatusText = document.getElementById('calibStatusText');
+
+
+      let isCalibrating = false;
+
+      function setCalibrating(on) {
+        isCalibrating = on;
+        recalibButton.disabled = on;
+        recalibButton.textContent = on ? 'Calibrating...' : 'Recalibrate';
+        // Note: Calibration status chip is updated by 'calibration_status_update' event
+      }
+
+      function sendTabState() {
+        const hidden = document.hidden || document.visibilityState !== 'visible';
+        socket.emit('tab_state', { hidden: hidden });
+        tabDot.className = hidden ? 'dot bad' : 'dot ok'; // Simplified update
+        tabText.textContent = hidden ? 'Tab: hidden' : 'Tab: active';
+      }
+      document.addEventListener('visibilitychange', sendTabState);
+      window.addEventListener('blur', sendTabState);
+      window.addEventListener('focus', sendTabState);
+
+      socket.on('connect', () => {
+        camDot.classList.add('ok');
+        sendTabState();
+      });
+
+      socket.on('proctor_alert', (data) => {
+        if (!data) return;
+        statusBox.textContent = data.message || '';
+        statusBox.className = 'status-' + (data.status || 'ok'); // Simplified update
+        if (data.status === 'calib') {
+          setCalibrating(true);
+        }
+        // No need to set calibrating false here, handled by calibration_complete
+      });
+
+      socket.on('calibration_complete', () => {
+        setCalibrating(false);
+        // Note: Chip status updated by 'calibration_status_update'
+      });
+
+       // ADDED: Handle calibration status updates
+      socket.on('calibration_status_update', (data) => {
+          if (!data || !data.status) return;
+          const status = data.status; // 'not_calibrated', 'calibrating', 'calibrated'
+          if (status === 'calibrated') {
+              calibStatusDot.className = 'dot ok';
+              calibStatusText.textContent = 'Calibration: Calibrated';
+              setCalibrating(false); // Ensure button is enabled if server says calibrated
+          } else if (status === 'calibrating') {
+              calibStatusDot.className = 'dot warn';
+              calibStatusText.textContent = 'Calibration: Calibrating...';
+              setCalibrating(true); // Ensure button is disabled
+          } else { // 'not_calibrated' or unknown
+              calibStatusDot.className = 'dot bad';
+              calibStatusText.textContent = 'Calibration: Not Calibrated';
+              setCalibrating(false); // Enable button to allow starting calibration
+          }
+      });
+
+
+      socket.on('score_update', (data) => {
+        if (!data) return;
+        const scoreStr = data.score || '0.00';
+        const scoreVal = parseFloat(scoreStr);
+        scoreValueEl.textContent = scoreStr;
+        penaltyReasonEl.textContent = data.reason || '';
+        scoreValueEl.className = scoreVal > 70 ? 'score-good' : scoreVal > 40 ? 'score-warn' : 'score-bad'; // Simplified
+      });
+
+      socket.on('focus_percentage_update', (data) => {
+        if (!data) return;
+        focusPercentageValueEl.textContent = data.percentage || '---';
+      });
+
+      socket.on('calibration_progress', (data) => {
+        if (!data) return;
+        calibPhaseEl.textContent = data.phase_label || data.phase || 'Calibration...';
+        const phasePct = data.phase_percent ?? 0;
+        const overallPct = data.overall_percent ?? 0;
+        calibPctEl.textContent = `Phase: ${phasePct.toFixed(1)}% • Overall: ${overallPct.toFixed(1)}%`; // Use toFixed(1)
+        calibBarInnerEl.style.width = `${overallPct}%`;
+        setCalibrating(true); // Keep button disabled
+      });
+
+      socket.on('speech_status', (data) => {
+        if (!data) return;
+        const enabled = !!data.enabled;
+        const active = !!data.active;
+        speechToggle.checked = enabled;
+        if (enabled) {
+          micDot.className = 'dot ok';
+          micText.textContent = active ? 'Speech: active' : 'Speech: listening';
+          speechDot.className = active ? 'dot ok' : 'dot bad';
+          speechPillText.textContent = active ? 'Speech: active' : 'Speech: idle';
+        } else {
+          micDot.className = 'dot';
+          micText.textContent = 'Speech: disabled';
+          speechDot.className = 'dot bad';
+          speechPillText.textContent = 'Speech: disabled';
+        }
+      });
+
+      socket.on('eyes_status', (data) => {
+        if (!data) return;
+        eyesDot.className = data.closed ? 'dot bad' : 'dot ok';
+        eyesText.textContent = data.closed ? `Eyes: closed ${data.seconds.toFixed(1)}s` : 'Eyes: open';
+      });
+
+      socket.on('stream_status', (data) => {
+          const isActive = data.active;
+          streamStoppedOverlay.style.display = isActive ? 'none' : 'flex';
+          startButton.style.display = isActive ? 'none' : 'inline-block';
+          stopButton.style.display = isActive ? 'inline-block' : 'none';
+          camDot.className = isActive ? 'dot ok' : 'dot bad';
+          camText.textContent = isActive ? 'Camera: live' : 'Camera: stopped';
+      });
+
+      recalibButton.addEventListener('click', () => {
+        socket.emit('recalibrate');
+        focusPercentageValueEl.textContent = '---';
+        setCalibrating(true);
+        calibBarInnerEl.style.width = '0%';
+        calibPhaseEl.textContent = 'Calibration: starting...';
+        calibPctEl.textContent = 'Phase: 0% • Overall: 0%';
+        // Status chip will update via 'calibration_status_update' event from server
+      });
+
+      reportButton.addEventListener('click', () => {
+        window.open('/report.txt', '_blank');
+      });
+
+      speechToggle.addEventListener('change', (e) => {
+        socket.emit('toggle_speech', { enable: e.target.checked });
+      });
+
+      stopButton.addEventListener('click', () => {
+          socket.emit('toggle_stream', { active: false });
+      });
+      startButton.addEventListener('click', () => {
+          socket.emit('toggle_stream', { active: true });
+      });
+
+    });
+  </script>
+</body>
+</html>
